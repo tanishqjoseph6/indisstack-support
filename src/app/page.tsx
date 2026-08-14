@@ -1,5 +1,5 @@
-import SupportDemo from "@/components/SupportDemo";
+import LandingPage from "@/components/LandingPage";
 
 export default function Home() {
-  return <SupportDemo />;
+  return <LandingPage />;
 }

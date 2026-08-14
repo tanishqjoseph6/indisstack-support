@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "IndisStack Support",
+  title: "IndisStack — Multilingual AI for India",
   description:
-    "AI customer-support demo for Hindi, Hinglish, and English messages.",
+    "IndisStack builds reliable AI for Hindi, Hinglish, and multilingual customer conversations. Structured outputs, safe escalation, private deployment.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
