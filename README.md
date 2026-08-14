@@ -46,3 +46,15 @@ When `OPENAI_API_KEY` is configured and the OpenAI project has available quota, 
 If the live API returns a quota or billing failure, the UI automatically falls back to a **deterministic local preview** so the product can still be demonstrated at no cost. Demo output is clearly labeled **“Demo output — deterministic preview”** and is not presented as a live model result.
 
 Demo mode uses keyword-based rules and fixed outputs for the built-in example messages. Other API errors (auth, rate limits, server failures) still show safe error messages and do not fall back silently.
+
+## Deployment
+
+For public demo deployments without OpenAI API billing, set:
+
+```
+NEXT_PUBLIC_DEMO_MODE=true
+```
+
+When enabled, the message analyzer uses deterministic local demo analysis immediately and does not call `/api/analyze`. Output is labeled **“Demo output — deterministic preview”**.
+
+Do not expose or commit `OPENAI_API_KEY`. For local development with live analysis, keep the key in `.env.local` only and leave `NEXT_PUBLIC_DEMO_MODE` unset or `false`.

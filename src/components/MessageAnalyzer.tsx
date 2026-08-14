@@ -10,6 +10,7 @@ import {
 } from "@/lib/analysis";
 import { QUOTA_BILLING_ERROR_MESSAGE } from "@/lib/analysisErrors";
 import { analyzeDemoMessage } from "@/lib/demoAnalysis";
+import { IS_PUBLIC_DEMO_MODE } from "@/lib/demoMode";
 import { EXAMPLE_MESSAGES, type ExampleKey } from "@/lib/examples";
 
 const EXAMPLE_CHIPS: { key: ExampleKey; label: string }[] = [
@@ -33,6 +34,13 @@ export default function MessageAnalyzer() {
     setError(null);
     setResult(null);
     setIsDemo(false);
+
+    if (IS_PUBLIC_DEMO_MODE) {
+      setResult(analyzeDemoMessage(trimmed));
+      setIsDemo(true);
+      setIsAnalyzing(false);
+      return;
+    }
 
     try {
       const response = await fetch("/api/analyze", {
