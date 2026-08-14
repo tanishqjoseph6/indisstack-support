@@ -31,6 +31,10 @@ npm run build
 npm start
 ```
 
+## Support Inbox
+
+Open [/inbox](http://localhost:3000/inbox) for the static **Support Inbox** prototype — a three-column demo workspace where support managers can review Hindi, Hinglish, and English customer messages, inspect deterministic IndisStack analysis, and approve, escalate, or resolve tickets locally. No API, authentication, or database is required.
+
 ## Analysis modes
 
 ### Live API mode

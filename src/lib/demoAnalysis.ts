@@ -1,18 +1,9 @@
-import type { AnalysisLanguage, AnalysisResponse } from "@/lib/analysis";
+import type { AnalysisResponse } from "@/lib/analysis";
+import { detectDemoLanguage } from "@/lib/demoLanguage";
 import { EXAMPLE_MESSAGES } from "@/lib/examples";
 
 function normalizeMessage(message: string): string {
   return message.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function detectLanguage(message: string): AnalysisLanguage {
-  const hasDevanagari = /[\u0900-\u097F]/.test(message);
-  const hasLatin = /[a-zA-Z]/.test(message);
-
-  if (hasDevanagari && hasLatin) return "hinglish";
-  if (hasDevanagari) return "hindi";
-  if (hasLatin) return "english";
-  return "other";
 }
 
 type DemoRule = {
@@ -264,7 +255,7 @@ function buildResponse(message: string, rule: DemoRule): AnalysisResponse {
   const confidence = Math.min(1, Math.max(0, rule.confidence));
   return {
     intent: rule.intent,
-    language: detectLanguage(message),
+    language: detectDemoLanguage(message),
     priority: rule.priority,
     action: rule.action,
     confidence,

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import HeroVisual from "@/components/HeroVisual";
 import MessageAnalyzer from "@/components/MessageAnalyzer";
 
@@ -75,13 +76,12 @@ export default function LandingPage() {
             ))}
           </ul>
 
-          <button
-            type="button"
-            onClick={() => scrollTo("#product")}
+          <Link
+            href="/inbox"
             className="shrink-0 border border-[var(--foreground)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--foreground)] hover:text-[var(--background)]"
           >
             Try Support
-          </button>
+          </Link>
         </nav>
       </header>
 
