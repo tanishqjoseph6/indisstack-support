@@ -8,13 +8,13 @@ A single-page app for IndisStack's AI customer-support classifier — Hindi, Hin
 npm install
 ```
 
-Create a `.env.local` file in the project root with your OpenAI API key:
+Copy `.env.example` to `.env.local` and configure as needed:
 
-```
-OPENAI_API_KEY=your_key_here
+```bash
+cp .env.example .env.local
 ```
 
-Never commit API keys. `.env.local` is ignored by git.
+Never commit API keys or the Supabase service role key. `.env.local` is ignored by git.
 
 ## Run
 
@@ -33,7 +33,93 @@ npm start
 
 ## Support Inbox
 
-Open [/inbox](http://localhost:3000/inbox) for the static **Support Inbox** prototype — a three-column demo workspace where support managers can review Hindi, Hinglish, and English customer messages, inspect deterministic IndisStack analysis, and approve, escalate, or resolve tickets locally. No API, authentication, or database is required.
+Open [/inbox](http://localhost:3000/inbox) for the **Support Inbox** demo workspace — review Hindi, Hinglish, and English customer messages, inspect deterministic IndisStack analysis, and approve, escalate, resolve, or reply to tickets.
+
+### Inbox persistence modes
+
+**Local demo (default)** — If Supabase is not configured, tickets load from static demo data with changes saved to `localStorage`. No database required.
+
+**Supabase (in progress)** — The production database schema is defined in `supabase/migrations/`. The inbox UI still uses local demo data and `localStorage` until the repository layer is wired to the new tables.
+
+### Demo mode
+
+Set in `.env.local`:
+
+```
+NEXT_PUBLIC_DEMO_MODE=true
+```
+
+When enabled:
+
+- The message analyzer uses deterministic local demo analysis and does not call `/api/analyze`.
+- The inbox uses local demo data and `localStorage` only (no Supabase API calls).
+- Output is labeled **“Demo output — deterministic preview”**.
+
+## Supabase database setup
+
+### 1. Create a project
+
+Create a [Supabase](https://supabase.com) project and copy your project URL and keys.
+
+### 2. Configure environment variables
+
+Add to `.env.local` (see `.env.example`):
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+```
+
+- `NEXT_PUBLIC_*` values are safe for browser/client code (anon key only).
+- `SUPABASE_SERVICE_ROLE_KEY` is **server-only** — never expose it in client bundles or `NEXT_PUBLIC_*` variables.
+
+### 3. Apply the schema migration
+
+In the Supabase SQL editor (or via Supabase CLI), run:
+
+```
+supabase/migrations/20250815161000_support_inbox_schema.sql
+```
+
+This creates:
+
+| Table | Purpose |
+|-------|---------|
+| `tickets` | Customer, preview, channel, language, priority, status, timestamps |
+| `messages` | Conversation messages per ticket |
+| `analyses` | Deterministic AI analysis per ticket |
+
+**Statuses:** `unresolved`, `resolved`, `escalated`  
+**Priorities:** `low`, `medium`, `high`  
+**Sender types:** `customer`, `agent`, `system`  
+**Confidence:** `0`–`100` on `analyses`
+
+The migration uses `CREATE TABLE IF NOT EXISTS` and does **not** drop existing tables.
+
+> **Legacy note:** An earlier dev migration (`20250815000000_inbox_schema.sql`) is deprecated. If you already applied it on the same project, use a fresh Supabase database or rename legacy tables before applying the production schema.
+
+### 4. Seed demo data
+
+After the schema migration, run the seed file manually:
+
+```
+supabase/seed.sql
+```
+
+The seed:
+
+- Inserts 7 demo tickets (Rahul Mehta through James Wilson) with realistic messages and analyses
+- **Skips automatically** if any row already exists in `tickets` (safe to re-run; will not overwrite data)
+- Does not `DROP` or `TRUNCATE` anything
+
+### 5. Row Level Security
+
+RLS is **enabled** on `tickets`, `messages`, and `analyses`.
+
+There are **no permissive public policies** — anonymous and authenticated clients cannot read or write inbox data until workspace authorization is implemented.
+
+Server-side code using `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS and is the only supported access path for now.
 
 ## Analysis modes
 
@@ -49,12 +135,10 @@ Demo mode uses keyword-based rules and fixed outputs for the built-in example me
 
 ## Deployment
 
-For public demo deployments without OpenAI API billing, set:
+For public demo deployments without OpenAI API billing or Supabase:
 
 ```
 NEXT_PUBLIC_DEMO_MODE=true
 ```
 
-When enabled, the message analyzer uses deterministic local demo analysis immediately and does not call `/api/analyze`. Output is labeled **“Demo output — deterministic preview”**.
-
-Do not expose or commit `OPENAI_API_KEY`. For local development with live analysis, keep the key in `.env.local` only and leave `NEXT_PUBLIC_DEMO_MODE` unset or `false`.
+Do not expose or commit `OPENAI_API_KEY` or `SUPABASE_SERVICE_ROLE_KEY`. For local development with live analysis, keep secrets in `.env.local` only and leave `NEXT_PUBLIC_DEMO_MODE` unset or `false`.

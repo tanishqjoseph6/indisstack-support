@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  countTicketsForFilter,
   formatInboxLanguage,
   formatInboxStatus,
   getInitials,
@@ -12,6 +13,20 @@ import {
   type InboxTicket,
   matchesFilter,
 } from "@/lib/inboxData";
+import {
+  addMessageRemote,
+  fetchTicket,
+  fetchTickets,
+  updateTicketStatusRemote,
+  type InboxDataSource,
+} from "@/lib/inbox/api";
+import { IS_PUBLIC_DEMO_MODE } from "@/lib/demoMode";
+import {
+  cloneTickets,
+  createReplyMessage,
+  loadTicketsFromStorage,
+  saveTicketsToStorage,
+} from "@/lib/inboxState";
 import { formatConfidence, formatPriority } from "@/lib/analysis";
 
 const FILTER_TABS: { id: InboxFilter; label: string }[] = [
@@ -20,44 +35,201 @@ const FILTER_TABS: { id: InboxFilter; label: string }[] = [
   { id: "resolved", label: "Resolved" },
 ];
 
-function cloneTickets(tickets: InboxTicket[]): InboxTicket[] {
-  return tickets.map((ticket) => ({
-    ...ticket,
-    messages: [...ticket.messages],
-    analysis: { ...ticket.analysis },
-  }));
-}
+const NOTICE_DURATION_MS = 3200;
 
 export default function SupportInbox() {
   const [tickets, setTickets] = useState(() => cloneTickets(INBOX_TICKETS));
   const [selectedId, setSelectedId] = useState(INBOX_TICKETS[0].id);
   const [filter, setFilter] = useState<InboxFilter>("all");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const [dataSource, setDataSource] = useState<InboxDataSource>("local");
 
   const filteredTickets = useMemo(
     () => tickets.filter((ticket) => matchesFilter(ticket, filter)),
     [tickets, filter],
   );
 
-  useEffect(() => {
-    if (
-      filteredTickets.length > 0 &&
-      !filteredTickets.some((ticket) => ticket.id === selectedId)
-    ) {
-      setSelectedId(filteredTickets[0].id);
-    }
-  }, [filteredTickets, selectedId]);
-
   const selectedTicket =
-    filteredTickets.find((ticket) => ticket.id === selectedId) ??
-    filteredTickets[0] ??
-    null;
+    tickets.find((ticket) => ticket.id === selectedId) ?? null;
+
+  const showNotice = useCallback((message: string) => {
+    setNotice(message);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTickets() {
+      if (IS_PUBLIC_DEMO_MODE) {
+        const stored = loadTicketsFromStorage();
+        if (!cancelled) {
+          setTickets(stored ?? cloneTickets(INBOX_TICKETS));
+          setDataSource("local");
+          setHydrated(true);
+        }
+        return;
+      }
+
+      const response = await fetchTickets();
+
+      if (!cancelled) {
+        if (
+          response.source === "supabase" &&
+          response.tickets &&
+          response.tickets.length > 0
+        ) {
+          setTickets(response.tickets);
+          setSelectedId(response.tickets[0].id);
+          setDataSource("supabase");
+        } else {
+          const stored = loadTicketsFromStorage();
+          setTickets(stored ?? cloneTickets(INBOX_TICKETS));
+          setDataSource("local");
+        }
+        setHydrated(true);
+      }
+    }
+
+    void loadTickets();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || dataSource !== "local") return;
+    saveTicketsToStorage(tickets);
+  }, [tickets, hydrated, dataSource]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), NOTICE_DURATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    setReplyOpen(false);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!tickets.some((ticket) => ticket.id === selectedId)) {
+      setSelectedId(tickets[0]?.id ?? "");
+    }
+  }, [tickets, selectedId]);
+
+  useEffect(() => {
+    if (!hydrated || dataSource !== "supabase" || !selectedId) return;
+
+    let cancelled = false;
+
+    async function loadTicketDetail() {
+      const ticket = await fetchTicket(selectedId);
+      if (!cancelled && ticket) {
+        setTickets((current) =>
+          current.map((item) => (item.id === selectedId ? ticket : item)),
+        );
+      }
+    }
+
+    void loadTicketDetail();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, dataSource, hydrated]);
+
+  function updateTicket(
+    ticketId: string,
+    updater: (ticket: InboxTicket) => InboxTicket,
+  ) {
+    setTickets((current) =>
+      current.map((ticket) => (ticket.id === ticketId ? updater(ticket) : ticket)),
+    );
+  }
 
   function updateTicketStatus(ticketId: string, status: InboxStatus) {
+    updateTicket(ticketId, (ticket) => ({ ...ticket, status }));
+  }
+
+  async function persistStatus(ticketId: string, status: InboxStatus) {
+    if (dataSource !== "supabase") return true;
+
+    const ticket = await updateTicketStatusRemote(ticketId, status);
+    if (!ticket) {
+      showNotice("Unable to save change. Please try again.");
+      return false;
+    }
+
     setTickets((current) =>
-      current.map((ticket) =>
-        ticket.id === ticketId ? { ...ticket, status } : ticket,
-      ),
+      current.map((item) => (item.id === ticketId ? ticket : item)),
     );
+    return true;
+  }
+
+  async function handleApproveAndResolve(ticketId: string) {
+    const previous = tickets;
+    updateTicketStatus(ticketId, "resolved");
+    showNotice("Ticket resolved.");
+
+    const ok = await persistStatus(ticketId, "resolved");
+    if (!ok) setTickets(previous);
+  }
+
+  async function handleEscalate(ticketId: string) {
+    const previous = tickets;
+    updateTicketStatus(ticketId, "escalated");
+    showNotice("Escalated to human review.");
+
+    const ok = await persistStatus(ticketId, "escalated");
+    if (!ok) setTickets(previous);
+  }
+
+  async function handleKeepOpen(ticketId: string) {
+    const previous = tickets;
+    updateTicketStatus(ticketId, "unresolved");
+    showNotice("Ticket kept open.");
+
+    const ok = await persistStatus(ticketId, "unresolved");
+    if (!ok) setTickets(previous);
+  }
+
+  async function handleReopen(ticketId: string) {
+    const previous = tickets;
+    updateTicketStatus(ticketId, "unresolved");
+    showNotice("Ticket reopened.");
+
+    const ok = await persistStatus(ticketId, "unresolved");
+    if (!ok) setTickets(previous);
+  }
+
+  async function handleSendReply(ticketId: string, text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    const previous = tickets;
+    const newMessage = createReplyMessage(trimmed);
+
+    updateTicket(ticketId, (ticket) => ({
+      ...ticket,
+      messages: [...ticket.messages, newMessage],
+    }));
+    setReplyOpen(false);
+    showNotice("Reply sent.");
+
+    if (dataSource === "supabase") {
+      const updatedTicket = await addMessageRemote(ticketId, trimmed);
+      if (!updatedTicket) {
+        setTickets(previous);
+        showNotice("Unable to send reply. Please try again.");
+        return;
+      }
+      setTickets((current) =>
+        current.map((ticket) =>
+          ticket.id === ticketId ? updatedTicket : ticket,
+        ),
+      );
+    }
   }
 
   return (
@@ -90,41 +262,52 @@ export default function SupportInbox() {
 
       <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-4 sm:px-6 sm:py-6">
         <div className="mb-4 flex flex-wrap items-center gap-2 sm:mb-6">
-          {FILTER_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setFilter(tab.id)}
-              className={`border px-3 py-1.5 text-xs font-medium transition ${
-                filter === tab.id
-                  ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
-                  : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {FILTER_TABS.map((tab) => {
+            const count = countTicketsForFilter(tickets, tab.id);
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setFilter(tab.id)}
+                className={`border px-3 py-1.5 text-xs font-medium transition ${
+                  filter === tab.id
+                    ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
+                    : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                }`}
+              >
+                {tab.label}
+                <span className="ml-1 opacity-70">({count})</span>
+              </button>
+            );
+          })}
         </div>
 
         <div className="grid min-h-[640px] flex-1 gap-px border border-[var(--border)] bg-[var(--border)] lg:grid-cols-[280px_minmax(0,1fr)_300px]">
           <InboxList
             tickets={filteredTickets}
-            selectedId={selectedTicket?.id ?? ""}
+            selectedId={selectedId}
             onSelect={setSelectedId}
           />
 
           {selectedTicket ? (
             <>
-              <ConversationPanel ticket={selectedTicket} />
+              <ConversationPanel
+                ticket={selectedTicket}
+                replyOpen={replyOpen}
+                onCancelReply={() => setReplyOpen(false)}
+                onSendReply={(text) => handleSendReply(selectedTicket.id, text)}
+              />
               <AnalysisPanel
                 ticket={selectedTicket}
-                onApprove={() => updateTicketStatus(selectedTicket.id, "approved")}
-                onEscalate={() =>
-                  updateTicketStatus(selectedTicket.id, "escalated")
+                notice={notice}
+                showDemoLabel={IS_PUBLIC_DEMO_MODE || dataSource === "local"}
+                onApproveAndResolve={() =>
+                  handleApproveAndResolve(selectedTicket.id)
                 }
-                onResolve={() =>
-                  updateTicketStatus(selectedTicket.id, "resolved")
-                }
+                onEscalate={() => handleEscalate(selectedTicket.id)}
+                onSendReply={() => setReplyOpen(true)}
+                onKeepOpen={() => handleKeepOpen(selectedTicket.id)}
+                onReopen={() => handleReopen(selectedTicket.id)}
               />
             </>
           ) : (
@@ -181,8 +364,6 @@ function InboxList({
                         {ticket.preview}
                       </p>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[0.6875rem] text-[var(--muted)]">
-                        <span>{ticket.channel}</span>
-                        <span>·</span>
                         <span className="capitalize">{ticket.priority}</span>
                         <span>·</span>
                         <span>{formatInboxStatus(ticket.status)}</span>
@@ -199,7 +380,28 @@ function InboxList({
   );
 }
 
-function ConversationPanel({ ticket }: { ticket: InboxTicket }) {
+function ConversationPanel({
+  ticket,
+  replyOpen,
+  onCancelReply,
+  onSendReply,
+}: {
+  ticket: InboxTicket;
+  replyOpen: boolean;
+  onCancelReply: () => void;
+  onSendReply: (text: string) => void;
+}) {
+  const [replyText, setReplyText] = useState(ticket.analysis.reply);
+
+  useEffect(() => {
+    setReplyText(ticket.analysis.reply);
+  }, [ticket.id, ticket.analysis.reply]);
+
+  function handleSend() {
+    onSendReply(replyText);
+    setReplyText(ticket.analysis.reply);
+  }
+
   return (
     <section className="flex flex-col bg-[var(--surface)]">
       <div className="border-b border-[var(--border)] px-4 py-4 sm:px-6">
@@ -253,24 +455,67 @@ function ConversationPanel({ ticket }: { ticket: InboxTicket }) {
           </div>
         ))}
       </div>
+
+      {replyOpen && (
+        <div className="border-t border-[var(--border)] bg-[var(--background)] px-4 py-4 sm:px-6">
+          <p className="text-[0.8125rem] font-medium text-[var(--foreground)]">
+            Send reply
+          </p>
+          <textarea
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            rows={4}
+            className="mt-3 w-full resize-none border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm leading-relaxed text-[var(--foreground)] placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
+            placeholder="Write your reply…"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={!replyText.trim()}
+              className="border border-[var(--foreground)] bg-[var(--foreground)] px-4 py-2 text-sm font-medium text-[var(--background)] transition hover:bg-transparent hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Send Reply
+            </button>
+            <button
+              type="button"
+              onClick={onCancelReply}
+              className="border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition hover:border-[var(--foreground)]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
 
 function AnalysisPanel({
   ticket,
-  onApprove,
+  notice,
+  showDemoLabel,
+  onApproveAndResolve,
   onEscalate,
-  onResolve,
+  onSendReply,
+  onKeepOpen,
+  onReopen,
 }: {
   ticket: InboxTicket;
-  onApprove: () => void;
+  notice: string | null;
+  showDemoLabel: boolean;
+  onApproveAndResolve: () => void;
   onEscalate: () => void;
-  onResolve: () => void;
+  onSendReply: () => void;
+  onKeepOpen: () => void;
+  onReopen: () => void;
 }) {
   const { analysis } = ticket;
   const confidencePercent = formatConfidence(analysis.confidence);
   const isResolved = ticket.status === "resolved";
+  const isEscalated = ticket.status === "escalated";
+  const isClosed = isResolved || isEscalated;
+  const needsEscalation = analysis.needsHuman;
 
   return (
     <aside className="flex flex-col border-t border-[var(--border)] bg-[var(--surface)] lg:border-t-0 lg:border-l">
@@ -278,12 +523,23 @@ function AnalysisPanel({
         <p className="text-[0.8125rem] font-medium text-[var(--foreground)]">
           IndisStack analysis
         </p>
-        <p className="mt-2 border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[0.75rem] font-medium text-[var(--foreground)]">
-          Demo output — deterministic preview
-        </p>
+        {showDemoLabel && (
+          <p className="mt-2 border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[0.75rem] font-medium text-[var(--foreground)]">
+            Demo output — deterministic preview
+          </p>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-5">
+        {notice && (
+          <p
+            className="mb-4 border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--foreground)]"
+            role="status"
+          >
+            {notice}
+          </p>
+        )}
+
         {analysis.needsHuman && (
           <div
             className="mb-5 border-l-2 border-[var(--accent)] py-1 pl-3"
@@ -341,30 +597,53 @@ function AnalysisPanel({
       </div>
 
       <div className="space-y-2 border-t border-[var(--border)] p-4 sm:p-5">
+        {!isClosed && needsEscalation && (
+          <button
+            type="button"
+            onClick={onEscalate}
+            className="w-full border border-[var(--foreground)] bg-[var(--foreground)] px-4 py-2 text-sm font-medium text-[var(--background)] transition hover:bg-transparent hover:text-[var(--foreground)]"
+          >
+            Escalate to Human
+          </button>
+        )}
+
+        {!isClosed && !needsEscalation && (
+          <button
+            type="button"
+            onClick={onApproveAndResolve}
+            className="w-full border border-[var(--foreground)] bg-[var(--foreground)] px-4 py-2 text-sm font-medium text-[var(--background)] transition hover:bg-transparent hover:text-[var(--foreground)]"
+          >
+            Approve &amp; Resolve
+          </button>
+        )}
+
         <button
           type="button"
-          onClick={onApprove}
-          disabled={isResolved}
-          className="w-full border border-[var(--foreground)] bg-[var(--foreground)] px-4 py-2 text-sm font-medium text-[var(--background)] transition hover:bg-transparent hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={onSendReply}
+          className="w-full border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition hover:border-[var(--foreground)]"
         >
-          Approve suggestion
+          Send Reply
         </button>
-        <button
-          type="button"
-          onClick={onEscalate}
-          disabled={isResolved}
-          className="w-full border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition hover:border-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Escalate to human
-        </button>
-        <button
-          type="button"
-          onClick={onResolve}
-          disabled={isResolved}
-          className="w-full px-4 py-2 text-sm text-[var(--muted)] underline decoration-[var(--border)] underline-offset-4 transition hover:text-[var(--foreground)] hover:decoration-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Mark resolved
-        </button>
+
+        {!isClosed && (
+          <button
+            type="button"
+            onClick={onKeepOpen}
+            className="w-full px-4 py-2 text-sm text-[var(--muted)] underline decoration-[var(--border)] underline-offset-4 transition hover:text-[var(--foreground)] hover:decoration-[var(--foreground)]"
+          >
+            Keep Open
+          </button>
+        )}
+
+        {isClosed && (
+          <button
+            type="button"
+            onClick={onReopen}
+            className="w-full px-4 py-2 text-sm text-[var(--muted)] underline decoration-[var(--border)] underline-offset-4 transition hover:text-[var(--foreground)] hover:decoration-[var(--foreground)]"
+          >
+            Reopen
+          </button>
+        )}
       </div>
     </aside>
   );

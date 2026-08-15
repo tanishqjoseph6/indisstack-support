@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Newsreader } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,19 +12,31 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const newsreader = Newsreader({
+  variable: "--font-display",
+  subsets: ["latin"],
+  style: ["normal", "italic"],
+});
+
 export const metadata: Metadata = {
-  title: "IndisStack — Multilingual AI for India",
+  title: "IndisStack — AI support that thinks before it replies",
   description:
-    "IndisStack builds reliable AI for Hindi, Hinglish, and multilingual customer conversations. Structured outputs, safe escalation, private deployment.",
+    "IndisStack is an AI-powered customer support intelligence platform. It understands conversations, decides the next action, and knows when to escalate to a human.",
+  openGraph: {
+    title: "IndisStack — AI support that thinks before it replies",
+    description:
+      "Understand every customer conversation. Make the right decision. Resolve faster — and escalate when it matters.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="flex min-h-full flex-col">{children}</body>
     </html>
   );
 }

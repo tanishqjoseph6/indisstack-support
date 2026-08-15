@@ -1,7 +1,7 @@
 import type { AnalysisPriority } from "@/lib/analysis";
 
 export type InboxChannel = "WhatsApp" | "Email" | "Web chat";
-export type InboxStatus = "unresolved" | "approved" | "escalated" | "resolved";
+export type InboxStatus = "unresolved" | "escalated" | "resolved";
 export type InboxFilter = "all" | "needs_attention" | "resolved";
 
 export type ConversationMessage = {
@@ -384,7 +384,6 @@ export function formatInboxLanguage(
 export function formatInboxStatus(status: InboxStatus): string {
   const labels: Record<InboxStatus, string> = {
     unresolved: "Unresolved",
-    approved: "Approved",
     escalated: "Escalated",
     resolved: "Resolved",
   };
@@ -394,5 +393,12 @@ export function formatInboxStatus(status: InboxStatus): string {
 export function matchesFilter(ticket: InboxTicket, filter: InboxFilter): boolean {
   if (filter === "all") return true;
   if (filter === "resolved") return ticket.status === "resolved";
-  return ticket.status !== "resolved" && ticket.status !== "approved";
+  return ticket.status === "unresolved" || ticket.status === "escalated";
+}
+
+export function countTicketsForFilter(
+  tickets: InboxTicket[],
+  filter: InboxFilter,
+): number {
+  return tickets.filter((ticket) => matchesFilter(ticket, filter)).length;
 }
