@@ -6,6 +6,7 @@ export type InboxTicketsResponse = {
   source: InboxDataSource;
   tickets: InboxTicket[] | null;
   error?: string;
+  unauthorized?: boolean;
 };
 
 export type InboxTicketResponse = {
@@ -30,11 +31,14 @@ export async function fetchTickets(): Promise<InboxTicketsResponse> {
     });
 
     const data = await parseJson<InboxTicketsResponse>(response);
-    if (!response.ok || !data) {
+    if (!response.ok) {
+      if (response.status === 401) {
+        return { source: "local", tickets: null, unauthorized: true };
+      }
       return { source: "local", tickets: null };
     }
 
-    return data;
+    return data ?? { source: "local", tickets: null };
   } catch {
     return { source: "local", tickets: null };
   }

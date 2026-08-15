@@ -21,6 +21,8 @@ import {
   type InboxDataSource,
 } from "@/lib/inbox/api";
 import { IS_PUBLIC_DEMO_MODE } from "@/lib/demoMode";
+import { fetchSession, logout } from "@/lib/auth/client";
+import type { SessionInfo } from "@/lib/auth/client";
 import {
   cloneTickets,
   createReplyMessage,
@@ -45,6 +47,7 @@ export default function SupportInbox() {
   const [replyOpen, setReplyOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [dataSource, setDataSource] = useState<InboxDataSource>("local");
+  const [session, setSession] = useState<SessionInfo | null>(null);
 
   const filteredTickets = useMemo(
     () => tickets.filter((ticket) => matchesFilter(ticket, filter)),
@@ -56,6 +59,24 @@ export default function SupportInbox() {
 
   const showNotice = useCallback((message: string) => {
     setNotice(message);
+  }, []);
+
+  useEffect(() => {
+    if (IS_PUBLIC_DEMO_MODE) return;
+
+    let cancelled = false;
+
+    async function loadSession() {
+      const info = await fetchSession();
+      if (!cancelled) {
+        setSession(info);
+      }
+    }
+
+    void loadSession();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -75,13 +96,15 @@ export default function SupportInbox() {
       const response = await fetchTickets();
 
       if (!cancelled) {
-        if (
-          response.source === "supabase" &&
-          response.tickets &&
-          response.tickets.length > 0
-        ) {
-          setTickets(response.tickets);
-          setSelectedId(response.tickets[0].id);
+        if (response.unauthorized) {
+          window.location.href = "/login";
+          return;
+        }
+
+        if (response.source === "supabase") {
+          const nextTickets = response.tickets ?? [];
+          setTickets(nextTickets);
+          setSelectedId(nextTickets[0]?.id ?? "");
           setDataSource("supabase");
         } else {
           const stored = loadTicketsFromStorage();
@@ -248,15 +271,33 @@ export default function SupportInbox() {
               Support Inbox
             </h1>
             <span className="hidden shrink-0 border border-[var(--border)] px-2 py-0.5 text-[0.6875rem] uppercase tracking-[0.08em] text-[var(--muted)] sm:inline">
-              Demo workspace
+              {IS_PUBLIC_DEMO_MODE || dataSource === "local"
+                ? "Demo workspace"
+                : session?.workspaceName ?? "Workspace"}
             </span>
           </div>
-          <Link
-            href="/"
-            className="shrink-0 text-sm text-[var(--muted)] underline decoration-[var(--border)] underline-offset-4 transition hover:text-[var(--foreground)] hover:decoration-[var(--foreground)]"
-          >
-            Back to home
-          </Link>
+          <div className="flex shrink-0 items-center gap-4">
+            {!IS_PUBLIC_DEMO_MODE && session?.email ? (
+              <div className="hidden items-center gap-3 sm:flex">
+                <span className="max-w-[12rem] truncate text-xs text-[var(--muted)]">
+                  {session.email}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void logout()}
+                  className="text-sm text-[var(--muted)] underline decoration-[var(--border)] underline-offset-4 transition hover:text-[var(--foreground)] hover:decoration-[var(--foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--accent)]"
+                >
+                  Logout
+                </button>
+              </div>
+            ) : null}
+            <Link
+              href="/"
+              className="shrink-0 text-sm text-[var(--muted)] underline decoration-[var(--border)] underline-offset-4 transition hover:text-[var(--foreground)] hover:decoration-[var(--foreground)]"
+            >
+              Back to home
+            </Link>
+          </div>
         </div>
       </header>
 

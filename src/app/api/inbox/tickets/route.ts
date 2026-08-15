@@ -1,16 +1,38 @@
 import { NextResponse } from "next/server";
-import { IS_PUBLIC_DEMO_MODE } from "@/lib/demoMode";
+import { getInboxAuthContext } from "@/lib/auth/guards";
 import { getTickets } from "@/lib/inbox/repository";
-import { isSupabaseConfigured } from "@/lib/supabase/server-config";
+import { ensureDemoTicketsForWorkspace } from "@/lib/workspace/demoTickets";
 
 export async function GET() {
-  if (IS_PUBLIC_DEMO_MODE || !isSupabaseConfigured()) {
+  const ctx = await getInboxAuthContext();
+
+  if (ctx.kind === "demo" || ctx.kind === "unconfigured") {
     return NextResponse.json({ source: "local", tickets: null });
   }
 
+  if (ctx.kind === "unauthenticated") {
+    return NextResponse.json(
+      { error: "Authentication required." },
+      { status: 401 },
+    );
+  }
+
+  if (!ctx.workspace) {
+    return NextResponse.json({
+      source: "supabase",
+      tickets: [],
+      workspace: null,
+    });
+  }
+
   try {
-    const tickets = await getTickets();
-    return NextResponse.json({ source: "supabase", tickets });
+    await ensureDemoTicketsForWorkspace(ctx.workspace.id, ctx.user.id);
+    const tickets = await getTickets(ctx.supabase);
+    return NextResponse.json({
+      source: "supabase",
+      tickets,
+      workspace: ctx.workspace,
+    });
   } catch {
     return NextResponse.json({
       source: "local",

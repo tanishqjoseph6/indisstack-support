@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { IS_PUBLIC_DEMO_MODE } from "@/lib/demoMode";
 import type { InboxStatus } from "@/lib/inboxData";
+import { getInboxAuthContext } from "@/lib/auth/guards";
 import { updateTicketStatus } from "@/lib/inbox/repository";
-import { isSupabaseConfigured } from "@/lib/supabase/server-config";
 
 const VALID_STATUSES = new Set<InboxStatus>([
   "unresolved",
@@ -15,11 +14,19 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
+  const ctx = await getInboxAuthContext();
 
-  if (IS_PUBLIC_DEMO_MODE || !isSupabaseConfigured()) {
+  if (ctx.kind === "demo" || ctx.kind === "unconfigured") {
     return NextResponse.json(
       { ok: false, error: "Supabase persistence is unavailable." },
       { status: 503 },
+    );
+  }
+
+  if (ctx.kind === "unauthenticated") {
+    return NextResponse.json(
+      { ok: false, error: "Authentication required." },
+      { status: 401 },
     );
   }
 
@@ -37,7 +44,11 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid status." }, { status: 400 });
     }
 
-    const ticket = await updateTicketStatus(id, status as InboxStatus);
+    const ticket = await updateTicketStatus(
+      ctx.supabase,
+      id,
+      status as InboxStatus,
+    );
     if (!ticket) {
       return NextResponse.json({ error: "Ticket not found." }, { status: 404 });
     }

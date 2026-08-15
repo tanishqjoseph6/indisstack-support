@@ -1,18 +1,25 @@
 import { NextResponse } from "next/server";
-import { IS_PUBLIC_DEMO_MODE } from "@/lib/demoMode";
+import { getInboxAuthContext } from "@/lib/auth/guards";
 import { addMessage } from "@/lib/inbox/repository";
-import { isSupabaseConfigured } from "@/lib/supabase/server-config";
 
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
+  const ctx = await getInboxAuthContext();
 
-  if (IS_PUBLIC_DEMO_MODE || !isSupabaseConfigured()) {
+  if (ctx.kind === "demo" || ctx.kind === "unconfigured") {
     return NextResponse.json(
       { ok: false, error: "Supabase persistence is unavailable." },
       { status: 503 },
+    );
+  }
+
+  if (ctx.kind === "unauthenticated") {
+    return NextResponse.json(
+      { ok: false, error: "Authentication required." },
+      { status: 401 },
     );
   }
 
@@ -27,10 +34,13 @@ export async function POST(
         : "";
 
     if (!content) {
-      return NextResponse.json({ error: "Message content is required." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Message content is required." },
+        { status: 400 },
+      );
     }
 
-    const ticket = await addMessage(id, content);
+    const ticket = await addMessage(ctx.supabase, id, content);
     if (!ticket) {
       return NextResponse.json({ error: "Ticket not found." }, { status: 404 });
     }

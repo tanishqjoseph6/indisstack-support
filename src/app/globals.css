@@ -756,6 +756,86 @@ body.nav-menu-open {
   font-weight: 500;
 }
 
+/* Auth pages */
+.auth-card {
+  border-radius: var(--radius);
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.auth-field input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  padding: 0.7rem 0.85rem;
+  font-size: 0.9375rem;
+  color: var(--foreground);
+  transition: border-color 0.25s ease;
+}
+
+.auth-field input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.auth-field input:disabled {
+  opacity: 0.6;
+}
+
+.auth-submit {
+  width: 100%;
+  border: 1px solid var(--foreground);
+  border-radius: 10px;
+  background: var(--foreground);
+  padding: 0.75rem 1rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--background);
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease,
+    opacity 0.25s ease;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: transparent;
+  color: var(--foreground);
+}
+
+.auth-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.auth-submit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.auth-error {
+  border: 1px solid color-mix(in srgb, #b42318 25%, var(--border));
+  background: color-mix(in srgb, #b42318 6%, var(--background));
+  padding: 0.75rem 0.85rem;
+  font-size: 0.8125rem;
+  color: var(--foreground);
+}
+
+.auth-notice {
+  border: 1px solid var(--border);
+  background: var(--background);
+  padding: 0.75rem 0.85rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
 /* Dark contrasting section */
 .section-dark {
   background: var(--foreground);

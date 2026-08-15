@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import "server-only";
 
 import type { InboxStatus, InboxTicket } from "@/lib/inboxData";
@@ -8,19 +9,8 @@ import {
   type DbMessageRow,
   type DbTicketRow,
 } from "@/lib/inbox/mappers";
-import { createSupabaseAdminClient } from "@/lib/supabase/server";
 
-function getClient() {
-  const client = createSupabaseAdminClient();
-  if (!client) {
-    throw new Error("Supabase is not configured");
-  }
-  return client;
-}
-
-async function fetchTicketBundle(id: string) {
-  const supabase = getClient();
-
+async function fetchTicketBundle(supabase: SupabaseClient, id: string) {
   const { data: ticket, error: ticketError } = await supabase
     .from("tickets")
     .select("*")
@@ -54,9 +44,7 @@ async function fetchTicketBundle(id: string) {
   );
 }
 
-export async function getTickets(): Promise<InboxTicket[]> {
-  const supabase = getClient();
-
+export async function getTickets(supabase: SupabaseClient): Promise<InboxTicket[]> {
   const { data: tickets, error: ticketError } = await supabase
     .from("tickets")
     .select("*")
@@ -83,13 +71,14 @@ export async function getTickets(): Promise<InboxTicket[]> {
   );
 }
 
-export async function getTicket(id: string): Promise<InboxTicket | null> {
-  return fetchTicketBundle(id);
+export async function getTicket(
+  supabase: SupabaseClient,
+  id: string,
+): Promise<InboxTicket | null> {
+  return fetchTicketBundle(supabase, id);
 }
 
-export async function getMessages(ticketId: string) {
-  const supabase = getClient();
-
+export async function getMessages(supabase: SupabaseClient, ticketId: string) {
   const { data, error } = await supabase
     .from("messages")
     .select("*")
@@ -100,9 +89,7 @@ export async function getMessages(ticketId: string) {
   return data ?? [];
 }
 
-export async function getAnalysis(ticketId: string) {
-  const supabase = getClient();
-
+export async function getAnalysis(supabase: SupabaseClient, ticketId: string) {
   const { data, error } = await supabase
     .from("analyses")
     .select("*")
@@ -114,42 +101,36 @@ export async function getAnalysis(ticketId: string) {
 }
 
 export async function updateTicketStatus(
+  supabase: SupabaseClient,
   id: string,
   status: InboxStatus,
 ): Promise<InboxTicket | null> {
-  const supabase = getClient();
-
-  const { error } = await supabase
-    .from("tickets")
-    .update({ status })
-    .eq("id", id);
+  const { error } = await supabase.from("tickets").update({ status }).eq("id", id);
 
   if (error) throw error;
-  return fetchTicketBundle(id);
+  return fetchTicketBundle(supabase, id);
 }
 
 export async function addMessage(
+  supabase: SupabaseClient,
   ticketId: string,
   content: string,
   senderName = "Support",
 ): Promise<InboxTicket | null> {
-  const supabase = getClient();
-
   const { error } = await supabase
     .from("messages")
     .insert(agentMessageToDbRow(ticketId, content, senderName));
 
   if (error) throw error;
 
-  return fetchTicketBundle(ticketId);
+  return fetchTicketBundle(supabase, ticketId);
 }
 
 export async function saveAnalysis(
+  supabase: SupabaseClient,
   ticketId: string,
   analysis: InboxTicket["analysis"],
 ): Promise<void> {
-  const supabase = getClient();
-
   const confidence =
     analysis.confidence <= 1
       ? Math.round(analysis.confidence * 100)
